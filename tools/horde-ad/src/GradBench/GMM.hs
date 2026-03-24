@@ -100,7 +100,7 @@ logGammaDistrib a d =
 
 frobeniusNormSq :: (KnownNat n, ADReady target)
                 => target (TKR n Double) -> target (TKScalar Double)
-frobeniusNormSq = rsum0 . rsquare
+frobeniusNormSq t0 = tlet t0 $ \t -> rdot0 t t
 
 rlogsumexp' :: ADReady target
             => target (TKR 1 Double) -> target (TKScalar Double)
@@ -120,12 +120,12 @@ logWishartPrior qs sums wisGamma wisM (Precomputed _ c2) =
 unpackQ :: ADReady target
         => Int -> target (TKR 1 Double) -> target (TKR 1 Double)
         -> target (TKR 2 Double)
-unpackQ d logdiag lt =
+unpackQ d logdiagExp lt =
   rbuild @2 [d, d] $ \[i, j] ->
     ifH (i <. j)
         (rscalar 0)
         (ifH (i <=. j)
-             (exp (logdiag ! [i]))
+             (logdiagExp ! [i])
              (lt ! [kconcrete (d - 1) * j + i - 1 - j * (j + 1) `quotH` 2]))
 
 objectiveTarget :: ADReady target
@@ -138,12 +138,13 @@ objectiveTarget input@GMMIn{..} =
       n :$: d :$: ZSR = rshape gmmInX
       k :$: ZSR = rshape gmmInAlphas
       x = rconcrete $ unConcrete gmmInX
-   in tlet (rzipWith1 (unpackQ d) gmmInQ gmmInL) $ \qs ->
+   in tlet (rzipWith1 (unpackQ d) (exp gmmInQ) gmmInL) $ \qs ->
       tlet (rsum $ rtr $ gmmInQ) $ \sums ->
+      tlet (gmmInAlphas + sums) $ \gmmSums ->
       let innerTerm =
             rbuild1 n (\i ->
               rfromK $ rlogsumexp
-                (gmmInAlphas + sums
+                (gmmSums
                  - (rbuild1 k $ \j ->
                       let qximuk = rmatvecmul (qs ! [j])
                                               (x ! [i] - gmmInMeans ! [j])
