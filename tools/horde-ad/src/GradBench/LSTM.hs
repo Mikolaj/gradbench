@@ -12,6 +12,10 @@ import HordeAd
 import HordeAd.Core.AstEnv
 import HordeAd.Core.AstInterpret
 
+import Control.Concurrent
+import Debug.Trace
+import System.IO.Unsafe (unsafePerformIO)
+
 type LSTMParams target =
   ( target (TKR 2 Double)  -- main_params  :: [stlen * 2][4 * d]
   , target (TKR 2 Double)  -- extra_params :: [3][d]
@@ -98,15 +102,15 @@ lstmPredict mainParams extraParams state input =
            => f (TKR 1 Double)
            -> f (TKProduct (TKR 3 Double) (TKR 2 Double))
            -> f (TKProduct (TKR 1 Double) (TKR 2 Double))
-      loop !x !el = tlet (tproject2 el ! [0]) $ \hidden ->
+      loop !x !el =
         let !(!o, !c') = lstmModel (tproject1 el ! [0])
                                    (tproject1 el ! [1])
-                                   hidden
+                                   (tproject2 el ! [0])
                                    (tproject2 el ! [1])
-                                   x  -- not shared, because a variable
-       in tlet c' $ \c ->
-          tlet (tanh c * o) $ \ !h ->
-            tpair h (rfromList [h, c])
+                                   x
+        in tlet c' $ \c ->
+           tlet (tanh c * o) $ \ !h ->
+             tpair h (rfromList [h, c])
   in withSNat (rwidth mainParams) $ \snat ->
     tmapAccumL Proxy snat
                (FTKR [rwidth input] FTKScalar)
@@ -144,9 +148,8 @@ lstmObjective LSTMInputAux{..} (lstmMainParams, lstmExtraParams) =
            tlet (tproject1 prediction * eparams ! [1]
                  + eparams ! [2]) $ \y_pred ->
              let newState = tproject2 prediction
-                 tmp_sum = rsum0 $ exp y_pred
-                 tmp_log = - log (tmp_sum + 2)
-                 ynorm = y_pred + rreplicate0N (rshape y_pred) tmp_log
+                 tmp_log = log (rsum0 (exp y_pred) + 2)
+                 ynorm = y_pred - rreplicate0N (rshape y_pred) tmp_log
              in tpair (tproject1 old) (tpair (tpair ynorm newState) newTotal)
       res = withSNat lstmLenSeq $ \snat ->
         tfold snat

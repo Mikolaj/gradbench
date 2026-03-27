@@ -51,9 +51,13 @@ instance JSON.ToJSON DirOutput where
 instance NFData DirOutput where
   rnf (DirOutput _ v) = rnf v
 
+makeMatrix :: ADReady target
+           => Int -> VS.Vector Double -> target (TKR 2 Double)
+makeMatrix d v = rconcrete $ Nested.rfromVector [VS.length v `div` d, d] v
+
 dist2 :: (NumScalar a, ADReady target)
       => target (TKR 1 a) -> target (TKR 1 a) -> target (TKScalar a)
-dist2 a b = rsum0 $ rsquare $ a - b
+dist2 a b = tlet (a - b) $ \amb -> rdot0 amb amb
 
 -- TODO: try fold instead of build
 costGeneric :: (NumScalar a, ADReady target)
@@ -69,27 +73,18 @@ costGeneric points centroids =
 
 cost :: Input -> CostOutput
 cost (Input d points' centroids') =
-  let points =
-        rconcrete
-        $ Nested.rfromVector [VS.length points' `div` d, d] points'
-      centroids =
-        rconcrete
-        $ Nested.rfromVector [VS.length centroids' `div` d, d] centroids'
+  let points = makeMatrix d points'
+      centroids = makeMatrix d centroids'
       ast = simplifyInlineContract $ costGeneric points centroids
   in -- traceShow ("primal", printAstPrettyButNested ast) $
      unConcrete $ interpretAstFull emptyEnv ast
 
-
 dir :: Input -> DirOutput
 dir (Input d points' centroids') =
   let points :: ADReady target => target (TKR 2 Double)
-      points =
-        rconcrete
-        $ Nested.rfromVector [VS.length points' `div` d, d] points'
-      centroids =
-        rconcrete
-        $ Nested.rfromVector [VS.length centroids' `div` d, d] centroids'
-      ftk = FTKR [VS.length centroids' `div` d, d] FTKScalar
+      points = makeMatrix d points'
+      centroids = makeMatrix d centroids'
+      ftk = FTKR [rwidth centroids, d] FTKScalar
       (cost', cost'') = jvp2 (kgrad (costGeneric points) ftk)
                              centroids
                              (rrepl (rshape centroids) 1)
