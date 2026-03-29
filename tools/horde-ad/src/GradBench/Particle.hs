@@ -3,8 +3,10 @@ module GradBench.Particle (Input, Output, rr, ff, fr, rf) where
 
 import Data.Aeson ((.:))
 import Data.Aeson qualified as JSON
-import GradBench.GD (cgrad2_fwdR, cgrad_fwdK2, multivariateArgmin)
+import GHC.TypeLits (KnownNat)
+import GradBench.GD
 import HordeAd
+import HordeAd.Core.Adaptor
 
 data Input = Input Double
 
@@ -13,6 +15,46 @@ type Output = Double
 instance JSON.FromJSON Input where
   parseJSON = JSON.withObject "input" $ \o ->
     Input <$> o .: "w"
+
+cgrad2_fwdR
+  :: forall src r tgt target n.
+     ( src ~ ADVal target (TKR n r)
+     , NumScalar r, ADTensorScalar r ~ r, KnownNat n
+     , tgt ~ ADVal target (TKScalar r)
+     , ADReadyNoLet target, ShareTensor target
+     , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+  => (src -> tgt)  -- ^ the objective function
+  -> DValue src
+  -> ( target (TKScalar r)
+     , DValue src )  -- morally DValue (ADTensorKind src)
+{-# INLINE cgrad2_fwdR #-}
+cgrad2_fwdR f x =
+  let shr = rshape $ fromDValue @src x
+      g :: IxROf target n -> target (TKScalar r)
+      g i = cjvp f x (roneHot shr (rscalar 1) i)
+  in (kprimalPart $ f (fromDValue x), rbuild shr (rfromK . g))
+{- TODO: optimize by switching the signature to shaped and using s simplified
+   version of this (or switch to symbolic pipeline):
+  in withShsFromShR shr $ \(sh :: ShS sh)->
+     withKnownShS sh $
+     case lemAppNil @sh  of
+       Refl ->
+         let g :: IxSOf target sh -> target (TKScalar r)
+             g i = cjvp f x (rfromS $ soneHot @sh (sscalar 1) i)
+         in (kprimalPart $ f (fromDValue x), rfromS $ kbuild @sh g) -}
+
+cgrad_fwdK2
+  :: forall src r tgt target.
+     ( src ~ (ADVal target (TKScalar r), ADVal target (TKScalar r))
+     , NumScalar r, ADTensorScalar r ~ r
+     , tgt ~ ADVal target (TKScalar r)
+     , ADReadyNoLet target, ShareTensor target
+     , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+  => (src -> tgt)  -- ^ the objective function
+  -> DValue src
+  -> DValue src  -- morally DValue (ADTensorKind src)
+{-# INLINE cgrad_fwdK2 #-}
+cgrad_fwdK2 f x = (cjvp f x (1, 0), cjvp f x (0, 1))
 
 type Point a = (a, a)
 
@@ -58,8 +100,10 @@ naiveEuler accel' w =
 
 -- TODO: this is very slow; see the comment in Saddle.hs
 rr, ff, fr, rf :: Input -> Output
-rr (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
-  where
+rr (Input w0) =
+  unConcrete
+  $ multivariateArgmin magnitude_squaredR scaleR g (rrepl [1] w0) `rindex0` [0]
+ where
     accel' :: forall target.
               ( ADReadyNoLet target, ShareTensor target
               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
@@ -80,8 +124,10 @@ rr (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
       => target (TKR 1 Double)
       -> (target (TKScalar Double), target (TKR 1 Double))
     g a = cgrad2 f a
-ff (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
-  where
+ff (Input w0) =
+  unConcrete
+  $ multivariateArgmin magnitude_squaredR scaleR g (rrepl [1] w0) `rindex0` [0]
+ where
     accel' :: forall target.
               ( ADReadyNoLet target, ShareTensor target
               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
@@ -102,8 +148,10 @@ ff (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
       => target (TKR 1 Double)
       -> (target (TKScalar Double), target (TKR 1 Double))
     g a = cgrad2_fwdR f a
-fr (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
-  where
+fr (Input w0) =
+  unConcrete
+  $ multivariateArgmin magnitude_squaredR scaleR g (rrepl [1] w0) `rindex0` [0]
+ where
     accel' :: forall target.
               ( ADReadyNoLet target, ShareTensor target
               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
@@ -124,7 +172,9 @@ fr (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
       => target (TKR 1 Double)
       -> (target (TKScalar Double), target (TKR 1 Double))
     g a = cgrad2_fwdR f a
-rf (Input w0) = unConcrete $ multivariateArgmin g (rrepl [1] w0) `rindex0` [0]
+rf (Input w0) =
+ unConcrete
+ $ multivariateArgmin magnitude_squaredR scaleR g (rrepl [1] w0) `rindex0` [0]
   where
     accel' :: forall target.
               ( ADReadyNoLet target, ShareTensor target
