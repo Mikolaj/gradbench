@@ -22,26 +22,24 @@ scaleR x v = rrepl (rshape v) x * v
 -- | The solver must be invoked with a function returning a pair: the cost
 -- and the gradient.
 multivariateArgmin
-  :: forall a target.
-     (NumScalar a, Differentiable a, ADReady target, Ord (target (TKScalar a)))
-  => (target (TKR 1 a) -> target (TKScalar a))
-  -> (a -> target (TKR 1 a) -> target (TKR 1 a))
-  -> (target (TKR 1 a) -> (target (TKScalar a), target (TKR 1 a)))
-  -> target (TKR 1 a) -> target (TKR 1 a)
+  :: forall a y target.
+     ( NumScalar a, Differentiable a, ADReady target, Num (target y)
+     , Ord (target (TKScalar a)) )
+  => (target y -> target (TKScalar a))
+  -> (a -> target y -> target y)
+  -> (target y -> (target (TKScalar a), target y))
+  -> target y -> target y
 {-# INLINE multivariateArgmin #-}
-multivariateArgmin magnitude_squared scale fg x0 =
-  loop (x0, fx0, gx0, 1e-5, 0 :: Int)
+multivariateArgmin magnitude_squared scale fg x0 = loop (x0, fx0, gx0, 1e-5, 0)
  where
-  magnitude :: target (TKR 1 a) -> target (TKScalar a)
+  magnitude :: target y -> target (TKScalar a)
   magnitude = sqrt . magnitude_squared
-  distance_squared :: target (TKR 1 a) -> target (TKR 1 a)
-                   -> target (TKScalar a)
+  distance_squared :: target y -> target y -> target (TKScalar a)
   distance_squared u v = magnitude_squared (u - v)
-  distance :: target (TKR 1 a) -> target (TKR 1 a) -> target (TKScalar a)
+  distance :: target y -> target y -> target (TKScalar a)
   distance u v = sqrt $ distance_squared u v
   (fx0, gx0) = fg x0
-  loop :: (target (TKR 1 a), target (TKScalar a), target (TKR 1 a), a, Int)
-       -> target (TKR 1 a)
+  loop :: (target y, target (TKScalar a), target y, a, Int) -> target y
   loop (x, fx, gx, eta, i)
     | magnitude gx <= 1e-5 = x
     | i == 10 = loop (x, fx, gx, 2 * eta, 0)
@@ -53,22 +51,24 @@ multivariateArgmin magnitude_squared scale fg x0 =
      (fx_prime, gx_prime) = fg x_prime
 
 multivariateArgmax
-  :: (NumScalar a, Differentiable a, ADReady target, Ord (target (TKScalar a)))
-  => (target (TKR 1 a) -> target (TKScalar a))
-  -> (a -> target (TKR 1 a) -> target (TKR 1 a))
-  -> (target (TKR 1 a) -> (target (TKScalar a), target (TKR 1 a)))
-  -> target (TKR 1 a) -> target (TKR 1 a)
+  :: ( NumScalar a, Differentiable a, ADReady target, Num (target y)
+     , Ord (target (TKScalar a)) )
+  => (target y -> target (TKScalar a))
+  -> (a -> target y -> target y)
+  -> (target y -> (target (TKScalar a), target y))
+  -> target y -> target y
 {-# INLINE multivariateArgmax #-}
 multivariateArgmax magnitude_squared scale fg =
   multivariateArgmin magnitude_squared scale (\arg -> let (c, g) = fg arg
                                                       in (-c, -g))
 
 multivariateMax
-  :: (NumScalar a, Differentiable a, ADReady target, Ord (target (TKScalar a)))
-  => (target (TKR 1 a) -> target (TKScalar a))
-  -> (a -> target (TKR 1 a) -> target (TKR 1 a))
-  -> (target (TKR 1 a) -> (target (TKScalar a), target (TKR 1 a)))
-  -> target (TKR 1 a) -> target (TKScalar a)
+  :: ( NumScalar a, Differentiable a, ADReady target, Num (target y)
+     , Ord (target (TKScalar a)) )
+  => (target y -> target (TKScalar a))
+  -> (a -> target y -> target y)
+  -> (target y -> (target (TKScalar a), target y))
+  -> target y -> target (TKScalar a)
 {-# INLINE multivariateMax #-}
 multivariateMax magnitude_squared scale fg x =
   fst $ fg $ multivariateArgmax magnitude_squared scale fg x
