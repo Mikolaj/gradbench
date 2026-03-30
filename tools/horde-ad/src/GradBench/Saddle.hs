@@ -47,103 +47,61 @@ cgrad2_fwdS f x | Refl <- lemAppNil @sh =
       g i = cjvp f x (soneHot (sscalar 1) i)
   in (kprimalPart $ f (fromDValue x), kbuild g)
 
-fp :: (Floating a) => a -> a -> a -> a -> a
+fp :: Floating a => a -> a -> a -> a -> a
+{-# INLINE fp #-}
 fp p1x p1y p2x p2y = (p1x ** 2 + p1y ** 2) - (p2x ** 2 + p2y ** 2)
-  -- this is slower:
+  -- this isn't faster enough to measure:
   -- fp p1x p1y p2x p2y = (sqr p1x + sqr p1y) - (sqr p2x + sqr p2y)
 
 saddleGen
-  :: (NumScalar a, Differentiable a, Ord (Concrete (TKScalar a)))
-  => (Concrete (TKS '[2] a) -> (Concrete (TKScalar a), Concrete (TKS '[2] a)))
-  -> (Concrete (TKS '[2] a) -> Concrete (TKS '[2] a)
-      -> (Concrete (TKScalar a), Concrete (TKS '[2] a)))
-  -> Concrete (TKS '[2] a)
-  -> Concrete (TKS '[4] a)
+  :: forall a. a ~ Double
+  => (forall target.
+      ( ADReadyNoLet target, ShareTensor target
+      , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+      => (ADVal target (TKS '[2] a) -> ADVal target (TKScalar a))
+      -> target (TKS '[2] a)
+      -> (target (TKScalar a), target (TKS '[2] a)))
+  -> (forall target.
+      ( ADReadyNoLet target, ShareTensor target
+      , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+      => (ADVal target (TKS '[2] a) -> ADVal target (TKScalar a))
+      -> target (TKS '[2] a)
+      -> (target (TKScalar a), target (TKS '[2] a)))
+  -> Input
+  -> Output
 {-# INLINE saddleGen #-}
-saddleGen r1cost' r2cost' start =
-  let r1 = multivariateArgmin magnitude_squaredS scaleS r1cost' start
-      r2 = multivariateArgmax magnitude_squaredS scaleS (r2cost' r1) start
-  in sappend r1 r2
+saddleGen cgrad2A cgrad2B (Input (x, y)) =
+  let start = sfromListLinear (SNat @2 :$$ ZSS) [x, y]
+      r1cost :: ADVal Concrete (TKS '[2] a) -> ADVal Concrete (TKScalar a)
+      r1cost p1 = multivariateMax magnitude_squaredS scaleS
+                                  (r2cost' p1) (sfromPrimal start)
+      r1cost' :: Concrete (TKS '[2] a)
+              -> (Concrete (TKScalar a), Concrete (TKS '[2] a))
+      r1cost' = cgrad2A (r1cost)
+      r2cost :: BaseTensor target
+             => target (TKS '[2] a) -> target (TKS '[2] a)
+             -> target (TKScalar a)
+      r2cost r1 r2 = fp (r1 `sindex0` [0]) (r1 `sindex0` [1])
+                        (r2 `sindex0` [0]) (r2 `sindex0` [1])
+      r2cost' :: ( ADReadyNoLet target, ShareTensor target
+                 , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+              => target (TKS '[2] a) -> target (TKS '[2] a)
+              -> (target (TKScalar a), target (TKS '[2] a))
+      r2cost' r1 = cgrad2B (r2cost (sfromPrimal r1))
+      res1 = multivariateArgmin magnitude_squaredS scaleS r1cost' start
+      res2 = multivariateArgmax magnitude_squaredS scaleS (r2cost' res1) start
+  in Nested.stoVector $ unConcrete $ sappend res1 res2
 
 -- TODO: this is very slow for many reasons:
 -- * nested concrete derivatives are slow, because they need to nest ADVal
 -- * we can't use symbolic derivatives due to the non-structured recursion
 --   in multivariateMax
 -- * we unroll all the identical things in the recursion and keep in memory
--- * nested derivatives in horde-ad are naively implemented regardless
--- * these are all 2-element rank 1 tensors (use products or lists instead?)
+-- * nested derivatives in horde-ad are naively implemented
+-- * these are all 2-element rank 1 tensors, so a lot of meta-data overhead
 -- * fwd are slow, because they use Deltas instead of trivial dual numbers
--- * specialization and inlining is crucial here, but not investigated/forced
 rr, ff, fr, rf :: Input -> Output
-rr (Input (x, y)) = Nested.stoVector . unConcrete
-                    $ saddleGen r1cost' r2cost' start
-  where
-    start = sfromListLinear (SNat @2 :$$ ZSS) [x, y]
-    r1cost p1 = multivariateMax magnitude_squaredS scaleS
-                                (r2cost' p1) (sfromPrimal start)
-    r1cost' p1 = cgrad2 (r1cost) p1
-    r2cost :: (NumScalar a, Differentiable a, ADReady target)
-           => target (TKS '[2] a) -> target (TKS '[2] a)
-           -> target (TKScalar a)
-    r2cost r1 r2 = fp (r1 `sindex0` [0]) (r1 `sindex0` [1])
-                      (r2 `sindex0` [0]) (r2 `sindex0` [1])
-    r2cost' :: ( ADReadyNoLet target, ShareTensor target
-               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-               , NumScalar a, Differentiable a )
-            => target (TKS '[2] a) -> target (TKS '[2] a)
-            -> (target (TKScalar a), target (TKS '[2] a))
-    r2cost' r1 r2 = cgrad2 (r2cost (sfromPrimal r1)) r2
-ff (Input (x, y)) = Nested.stoVector . unConcrete
-                    $ saddleGen r1cost' r2cost' start
-  where
-    start = sfromListLinear (SNat @2 :$$ ZSS) [x, y]
-    r1cost p1 = multivariateMax magnitude_squaredS scaleS
-                                (r2cost' p1) (sfromPrimal start)
-    r1cost' p1 = cgrad2_fwdS (r1cost) p1
-    r2cost :: (NumScalar a, Differentiable a, ADReady target)
-           => target (TKS '[2] a) -> target (TKS '[2] a)
-           -> target (TKScalar a)
-    r2cost r1 r2 = fp (r1 `sindex0` [0]) (r1 `sindex0` [1])
-                      (r2 `sindex0` [0]) (r2 `sindex0` [1])
-    r2cost' :: ( ADReadyNoLet target, ShareTensor target
-               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-               , NumScalar a, Differentiable a )
-            => target (TKS '[2] a) -> target (TKS '[2] a)
-            -> (target (TKScalar a), target (TKS '[2] a))
-    r2cost' r1 r2 = cgrad2_fwdS (r2cost (sfromPrimal r1)) r2
-rf (Input (x, y)) = Nested.stoVector . unConcrete
-                    $ saddleGen r1cost' r2cost' start
-  where
-    start = sfromListLinear (SNat @2 :$$ ZSS) [x, y]
-    r1cost p1 = multivariateMax magnitude_squaredS scaleS
-                                (r2cost' p1) (sfromPrimal start)
-    r1cost' p1 = cgrad2 (r1cost) p1
-    r2cost :: (NumScalar a, Differentiable a, ADReady target)
-           => target (TKS '[2] a) -> target (TKS '[2] a)
-           -> target (TKScalar a)
-    r2cost r1 r2 = fp (r1 `sindex0` [0]) (r1 `sindex0` [1])
-                      (r2 `sindex0` [0]) (r2 `sindex0` [1])
-    r2cost' :: ( ADReadyNoLet target, ShareTensor target
-               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-               , NumScalar a, Differentiable a )
-            => target (TKS '[2] a) -> target (TKS '[2] a)
-            -> (target (TKScalar a), target (TKS '[2] a))
-    r2cost' r1 r2 = cgrad2_fwdS (r2cost (sfromPrimal r1)) r2
-fr (Input (x, y)) = Nested.stoVector . unConcrete
-                    $ saddleGen r1cost' r2cost' start
-  where
-    start = sfromListLinear (SNat @2 :$$ ZSS) [x, y]
-    r1cost p1 = multivariateMax magnitude_squaredS scaleS
-                                (r2cost' p1) (sfromPrimal start)
-    r1cost' p1 = cgrad2_fwdS (r1cost) p1
-    r2cost :: (NumScalar a, Differentiable a, ADReady target)
-           => target (TKS '[2] a) -> target (TKS '[2] a)
-           -> target (TKScalar a)
-    r2cost r1 r2 = fp (r1 `sindex0` [0]) (r1 `sindex0` [1])
-                      (r2 `sindex0` [0]) (r2 `sindex0` [1])
-    r2cost' :: ( ADReadyNoLet target, ShareTensor target
-               , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-               , NumScalar a, Differentiable a )
-            => target (TKS '[2] a) -> target (TKS '[2] a)
-            -> (target (TKScalar a), target (TKS '[2] a))
-    r2cost' r1 r2 = cgrad2 (r2cost (sfromPrimal r1)) r2
+rr = saddleGen cgrad2 cgrad2
+ff = saddleGen cgrad2_fwdS cgrad2_fwdS
+rf = saddleGen cgrad2 cgrad2_fwdS
+fr = saddleGen cgrad2_fwdS cgrad2
