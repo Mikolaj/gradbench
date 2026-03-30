@@ -25,19 +25,6 @@ scaleK :: (NumScalar a, ADReady target)
 {-# INLINE scaleK #-}
 scaleK x v = kconcrete x * v
 
-cgrad2_fwdK
-  :: forall src r tgt target.
-     ( src ~ ADVal target (TKScalar r)
-     , NumScalar r, ADTensorScalar r ~ r
-     , tgt ~ ADVal target (TKScalar r)
-     , ADReadyNoLet target, ShareTensor target )
-  => (src -> tgt)  -- ^ the objective function
-  -> DValue src
-  -> ( target (TKScalar r)
-     , DValue src )  -- morally DValue (ADTensorKind src)
-{-# INLINE cgrad2_fwdK #-}
-cgrad2_fwdK f x = cjvp2 f x 1
-
 cgrad_fwdK2
   :: forall src r tgt target.
      ( src ~ (ADVal target (TKScalar r), ADVal target (TKScalar r))
@@ -50,6 +37,19 @@ cgrad_fwdK2
   -> DValue src  -- morally DValue (ADTensorKind src)
 {-# INLINE cgrad_fwdK2 #-}
 cgrad_fwdK2 f x = (cjvp f x (1, 0), cjvp f x (0, 1))
+
+cgrad2_fwdK
+  :: forall src r tgt target.
+     ( src ~ ADVal target (TKScalar r)
+     , NumScalar r, ADTensorScalar r ~ r
+     , tgt ~ ADVal target (TKScalar r)
+     , ADReadyNoLet target, ShareTensor target )
+  => (src -> tgt)  -- ^ the objective function
+  -> DValue src
+  -> ( target (TKScalar r)
+     , DValue src )  -- morally DValue (ADTensorKind src)
+{-# INLINE cgrad2_fwdK #-}
+cgrad2_fwdK f x = cjvp2 f x 1
 
 type Point a = (a, a)
 
@@ -70,7 +70,7 @@ accel :: (Floating a) => [Point a] -> Point a -> a
 accel charges x = sum $ map (\p -> recip (dist p x)) charges
 
 naiveEuler
-  :: (ADReadyNoLet target, Ord (target (TKScalar Double)))
+  :: (BaseTensor target, Ord (target (TKScalar Double)))
   => ([Point (target (TKScalar Double))] -> Point (target (TKScalar Double))
       -> Point (target (TKScalar Double)))
   -> target (TKScalar Double)
@@ -93,93 +93,50 @@ naiveEuler accel' w =
        then loop x_new $ xdot `pplus` (delta_t `ktimesp` xddot)
        else (x, xdot)
 
+particleGen
+  :: forall a. a ~ Double
+  => (forall target.
+      ( ADReadyNoLet target, ShareTensor target
+      , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+      => ((ADVal target (TKScalar a), ADVal target (TKScalar a))
+          -> ADVal target (TKScalar a))
+      -> (target (TKScalar a), target (TKScalar a))
+      -> (target (TKScalar a), target (TKScalar a)))
+  -> (forall target.
+      (ADReadyNoLet target, ShareTensor target)
+      => (ADVal target (TKScalar a)
+          -> ADVal target (TKScalar a))
+      -> target (TKScalar a)
+      -> (target (TKScalar a), target (TKScalar a)))
+  -> Input
+  -> Output
+{-# INLINE particleGen #-}
+particleGen cgradA cgrad2B (Input w0) =
+  unConcrete
+  $ multivariateArgmin magnitude_squaredK scaleK g (kconcrete w0)
+ where
+  accel' :: ( ADReadyNoLet target, ShareTensor target
+            , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
+         => [Point (target (TKScalar Double))]
+         -> Point (target (TKScalar Double))
+         -> Point (target (TKScalar Double))
+  accel' charges = cgradA (accel $ map (\(x, y) ->
+                             (kfromPrimal x, kfromPrimal y)) charges)
+  f :: ( ADReadyNoLet target, ShareTensor target
+       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
+       , Ord (target (TKScalar Double)) )
+    => target (TKScalar Double) -> target (TKScalar Double)
+  f w = naiveEuler accel' w
+  g :: ( ADReadyNoLet target, ShareTensor target
+       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
+       , Ord (target (TKScalar Double)) )
+    => target (TKScalar Double)
+    -> (target (TKScalar Double), target (TKScalar Double))
+  g a = cgrad2B f a
+
 -- TODO: this is very slow; see the comment in Saddle.hs
 rr, ff, fr, rf :: Input -> Output
-rr (Input w0) =
-  unConcrete
-  $ multivariateArgmin magnitude_squaredK scaleK g (kconcrete w0)
- where
-  accel' :: ( ADReadyNoLet target, ShareTensor target
-            , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
-         => [Point (target (TKScalar Double))]
-         -> Point (target (TKScalar Double))
-         -> Point (target (TKScalar Double))
-  accel' charges = cgrad (accel $ map (\(x, y) ->
-                            (kfromPrimal x, kfromPrimal y)) charges)
-  f :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double) -> target (TKScalar Double)
-  f w = naiveEuler accel' w
-  g :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double)
-    -> (target (TKScalar Double), target (TKScalar Double))
-  g a = cgrad2 f a
-ff (Input w0) =
-  unConcrete
-  $ multivariateArgmin magnitude_squaredK scaleK g (kconcrete w0)
- where
-  accel' :: ( ADReadyNoLet target, ShareTensor target
-            , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
-         => [Point (target (TKScalar Double))]
-         -> Point (target (TKScalar Double))
-         -> Point (target (TKScalar Double))
-  accel' charges = cgrad_fwdK2 (accel $ map (\(x, y) ->
-                                  (kfromPrimal x, kfromPrimal y)) charges)
-  f :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double) -> target (TKScalar Double)
-  f w = naiveEuler accel' w
-  g :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double)
-    -> (target (TKScalar Double), target (TKScalar Double))
-  g a = cgrad2_fwdK f a
-fr (Input w0) =
-  unConcrete
-  $ multivariateArgmin magnitude_squaredK scaleK g (kconcrete w0)
- where
-  accel' :: ( ADReadyNoLet target, ShareTensor target
-            , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
-         => [Point (target (TKScalar Double))]
-         -> Point (target (TKScalar Double))
-         -> Point (target (TKScalar Double))
-  accel' charges = cgrad (accel $ map (\(x, y) ->
-                            (kfromPrimal x, kfromPrimal y)) charges)
-  f :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double) -> target (TKScalar Double)
-  f w = naiveEuler accel' w
-  g :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double)
-    -> (target (TKScalar Double), target (TKScalar Double))
-  g a = cgrad2_fwdK f a
-rf (Input w0) =
-  unConcrete
-  $ multivariateArgmin magnitude_squaredK scaleK g (kconcrete w0)
- where
-  accel' :: ( ADReadyNoLet target, ShareTensor target
-            , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
-         => [Point (target (TKScalar Double))]
-         -> Point (target (TKScalar Double))
-         -> Point (target (TKScalar Double))
-  accel' charges = cgrad_fwdK2 (accel $ map (\(x, y) ->
-                                  (kfromPrimal x, kfromPrimal y)) charges)
-  f :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double) -> target (TKScalar Double)
-  f w = naiveEuler accel' w
-  g :: ( ADReadyNoLet target, ShareTensor target
-       , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double)
-    -> (target (TKScalar Double), target (TKScalar Double))
-  g a = cgrad2 f a
+rr = particleGen cgrad cgrad2
+ff = particleGen cgrad_fwdK2 cgrad2_fwdK
+fr = particleGen cgrad cgrad2_fwdK
+rf = particleGen cgrad_fwdK2 cgrad2
