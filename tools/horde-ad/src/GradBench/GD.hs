@@ -2,22 +2,11 @@
 -- Gradient Descent. It is very naive, but this is
 -- sufficient for the 'particle' and 'saddle' evals.
 module GradBench.GD
-  ( magnitude_squaredR, scaleR
-  , multivariateArgmin, multivariateArgmax, multivariateMax
+  ( multivariateArgmin, multivariateArgmax, multivariateMax
   )
 where
 
 import HordeAd
-
-magnitude_squaredR :: (NumScalar a, ADReady target)
-                   => target (TKR 1 a) -> target (TKScalar a)
-{-# INLINE magnitude_squaredR #-}
-magnitude_squaredR t' = tlet t' $ \t -> rdot0 t t
-
-scaleR :: (NumScalar a, ADReady target)
-       => a -> target (TKR 1 a) -> target (TKR 1 a)
-{-# INLINE scaleR #-}
-scaleR x v = rrepl (rshape v) x * v
 
 -- | The solver must be invoked with a function returning a pair: the cost
 -- and the gradient.
