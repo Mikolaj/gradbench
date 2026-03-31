@@ -76,7 +76,8 @@ dist u v = sqrt (sqr (fst u - fst v) + sqr (snd u - snd v))
 
 accel :: (Floating a) => [Point a] -> Point a -> a
 {-# INLINE accel #-}
-accel charges x = sum $ map (\p -> recip (dist p x)) charges
+accel charges x =
+  foldl' (\ !acc p@(!_, !_) -> acc + recip (dist p x)) 0 charges
 
 naiveEuler
   :: forall a target. a ~ Double
@@ -96,7 +97,7 @@ naiveEuler accel' w =
  where
   charges = [(10, 10 - w), (10, 0)]
   delta_t = 1e-1
-  loop !x !xdot =
+  loop x@(!_, !_) xdot@(!_, !_) =
     let xddot = accel' charges x
         x_new = x `pplus` (delta_t `ktimesp` xdot)
     in if snd x_new > 0
