@@ -116,7 +116,7 @@ det a =
       q :: PlainOf target (TKR 1 Int8OrDouble)
       q = rconcrete $ inversion_number_from_idx ell
       f :: IntOf target -> target (TKScalar Double)
-      f i = (-1) **  (kfromPlain (q `rindex0` [i]))
+      f i = (-1) **  kfromPlain (q `rindex0` [i])
             * productR (rgather1 ell a $ \i2 ->
                           [i2, kfromIntegral $ p `rindex0` [i, i2]])
   in withSNat (fact ell) $ \ (SNat @k) ->

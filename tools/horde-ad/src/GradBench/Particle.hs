@@ -7,7 +7,7 @@ import GradBench.GD
 import HordeAd
 import HordeAd.Core.Adaptor
 
-data Input = Input Double
+newtype Input = Input Double
 
 type Output = Double
 

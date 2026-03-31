@@ -166,7 +166,7 @@ lstmObjective LSTMInputAux{..} (lstmMainParams, lstmExtraParams) =
               (rconcrete $ unConcrete lstmSequence)
       finalTotal = tproject2 $ tproject2 res
       count = lstmD * (lstmLenSeq - 1)
-  in - finalTotal / kconcrete (fromIntegral count)
+  in - (finalTotal / kconcrete (fromIntegral count))
 
 objective :: LSTMInput Concrete -> Double
 objective (LSTMInput lstmInputAux (lstmMainParams, lstmExtraParams)) =

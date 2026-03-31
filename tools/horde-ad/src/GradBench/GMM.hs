@@ -57,7 +57,7 @@ instance JSON.FromJSON (GMMIn Concrete) where
 instance JSON.ToJSON GMMOut where
   toJSON (GMMOut (gmmInAlphas, gmmInMeans, gmmInQ, gmmInL)) =
     object [ "alpha" .=
-               JSON.toJSON (Nested.rtoVector $ unConcrete $ gmmInAlphas)
+               JSON.toJSON (Nested.rtoVector $ unConcrete gmmInAlphas)
            , "mu" .= JSON.toJSON (unChunk gmmInMeans)
            , "q" .= JSON.toJSON (unChunk gmmInQ)
            , "l" .= JSON.toJSON (unChunk gmmInL)
@@ -139,7 +139,7 @@ objectiveTarget input@GMMIn{..} =
       k :$: ZSR = rshape gmmInAlphas
       x = rconcrete $ unConcrete gmmInX
    in tlet (rzipWith1 (unpackQ d) (exp gmmInQ) gmmInL) $ \qs ->
-      tlet (rsum $ rtr $ gmmInQ) $ \sums ->
+      tlet (rsum $ rtr gmmInQ) $ \sums ->
       tlet (gmmInAlphas + sums) $ \gmmSums ->
       let innerTerm =
             rbuild1 n (\i ->
