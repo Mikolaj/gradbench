@@ -53,28 +53,34 @@ cgrad2_fwdK f x = cjvp2 f x 1
 
 type Point a = (a, a)
 
+-- No sharing, so not good for the symbolic pipeline, but adequate here.
 pplus :: (Num a) => Point a -> Point a -> Point a
+{-# INLINE pplus #-}
 pplus u v = (fst u + fst v, snd u + snd v)
 
 ktimesp :: (Num a) => a -> Point a -> Point a
+{-# INLINE ktimesp #-}
 ktimesp k u = (k * fst u, k * snd u)
 
--- No sharing, so not good for the symbolic pipeline.
 sqr :: (Floating a) => a -> a
+{-# INLINE sqr #-}
 sqr x = x * x
 
 dist :: (Floating a) => Point a -> Point a -> a
+{-# INLINE dist #-}
 dist u v = sqrt (sqr (fst u - fst v) + sqr (snd u - snd v))
 
 accel :: (Floating a) => [Point a] -> Point a -> a
+{-# INLINE accel #-}
 accel charges x = sum $ map (\p -> recip (dist p x)) charges
 
 naiveEuler
-  :: (BaseTensor target, Ord (target (TKScalar Double)))
-  => ([Point (target (TKScalar Double))] -> Point (target (TKScalar Double))
-      -> Point (target (TKScalar Double)))
-  -> target (TKScalar Double)
-  -> target (TKScalar Double)
+  :: forall a target. a ~ Double
+  => (BaseTensor target, Ord (target (TKScalar a)))
+  => ([Point (target (TKScalar a))] -> Point (target (TKScalar a))
+      -> Point (target (TKScalar a)))
+  -> target (TKScalar a)
+  -> target (TKScalar a)
 {-# INLINE naiveEuler #-}
 naiveEuler accel' w =
   let x_initial = (0, 8)
@@ -86,7 +92,7 @@ naiveEuler accel' w =
  where
   charges = [(10, 10 - w), (10, 0)]
   delta_t = 1e-1
-  loop x xdot =
+  loop !x !xdot =
     let xddot = (-1) `ktimesp` accel' charges x
         x_new = x `pplus` (delta_t `ktimesp` xdot)
     in if snd x_new > 0
@@ -117,22 +123,20 @@ particleGen cgradA cgrad2B (Input w0) =
  where
   accel' :: ( ADReadyNoLet target, ShareTensor target
             , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
-         => [Point (target (TKScalar Double))]
-         -> Point (target (TKScalar Double))
-         -> Point (target (TKScalar Double))
+         => [Point (target (TKScalar a))] -> Point (target (TKScalar a))
+         -> Point (target (TKScalar a))
   accel' charges = cgradA (accel $ map (\(x, y) ->
                              (kfromPrimal x, kfromPrimal y)) charges)
   f :: ( ADReadyNoLet target, ShareTensor target
        , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double) -> target (TKScalar Double)
-  f w = naiveEuler accel' w
+       , Ord (target (TKScalar a)) )
+    => target (TKScalar a) -> target (TKScalar a)
+  f = naiveEuler accel'
   g :: ( ADReadyNoLet target, ShareTensor target
        , ShareTensor (PrimalOf target), ShareTensor (PlainOf target)
-       , Ord (target (TKScalar Double)) )
-    => target (TKScalar Double)
-    -> (target (TKScalar Double), target (TKScalar Double))
-  g a = cgrad2B f a
+       , Ord (target (TKScalar a)) )
+    => target (TKScalar a) -> (target (TKScalar a), target (TKScalar a))
+  g = cgrad2B f
 
 -- TODO: this is very slow; see the comment in Saddle.hs
 rr, ff, fr, rf :: Input -> Output

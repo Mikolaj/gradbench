@@ -46,6 +46,17 @@ cgrad2_fwdS f x | Refl <- lemAppNil @sh =
   let g :: IxSOf target sh -> target (TKScalar r)
       g i = cjvp f x (soneHot (sscalar 1) i)
   in (kprimalPart $ f (fromDValue x), kbuild g)
+{- The following is slower, probably because kbuild has an efficient
+   implementation in the Concrete instance (one of the two instances
+   where this is used). We could define this differently for each instance,
+   but that would be too ugly even for a benchmark code.
+cgrad2_fwdS f x =
+  let v10 = singestData [1, 0]
+      v01 = singestData [0, 1]
+  in ( kprimalPart $ f (fromDValue x)
+     , sfromVectorLinear (SNat @2 :$$ ZSS)
+       $ V.fromList [cjvp f x v10, cjvp f x v01] )
+-}
 
 fp :: Floating a => a -> a -> a -> a -> a
 {-# INLINE fp #-}
@@ -77,7 +88,7 @@ saddleGen cgrad2A cgrad2B (Input (x, y)) =
                                   (r2cost' p1) (sfromPrimal start)
       r1cost' :: Concrete (TKS '[2] a)
               -> (Concrete (TKScalar a), Concrete (TKS '[2] a))
-      r1cost' = cgrad2A (r1cost)
+      r1cost' = cgrad2A r1cost
       r2cost :: BaseTensor target
              => target (TKS '[2] a) -> target (TKS '[2] a)
              -> target (TKScalar a)
