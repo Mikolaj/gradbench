@@ -58,6 +58,10 @@ pplus :: (Num a) => Point a -> Point a -> Point a
 {-# INLINE pplus #-}
 pplus u v = (fst u + fst v, snd u + snd v)
 
+pminus :: (Num a) => Point a -> Point a -> Point a
+{-# INLINE pminus #-}
+pminus u v = (fst u - fst v, snd u - snd v)
+
 ktimesp :: (Num a) => a -> Point a -> Point a
 {-# INLINE ktimesp #-}
 ktimesp k u = (k * fst u, k * snd u)
@@ -86,17 +90,17 @@ naiveEuler accel' w =
   let x_initial = (0, 8)
       xdot_initial = (0.75, 0)
       (x, xdot) = loop x_initial xdot_initial
-      delta_t_f = - (snd x) / snd xdot
-      x_t_f = x `pplus` (delta_t_f `ktimesp` xdot)
+      delta_t_f = snd x / snd xdot
+      x_t_f = x `pminus` (delta_t_f `ktimesp` xdot)
   in sqr (fst x_t_f)
  where
   charges = [(10, 10 - w), (10, 0)]
   delta_t = 1e-1
   loop !x !xdot =
-    let xddot = (-1) `ktimesp` accel' charges x
+    let xddot = accel' charges x
         x_new = x `pplus` (delta_t `ktimesp` xdot)
     in if snd x_new > 0
-       then loop x_new $ xdot `pplus` (delta_t `ktimesp` xddot)
+       then loop x_new (xdot `pminus` (delta_t `ktimesp` xddot))
        else (x, xdot)
 
 particleGen
@@ -140,7 +144,7 @@ particleGen cgradA cgrad2B (Input w0) =
 
 -- TODO: this is very slow; see the comment in Saddle.hs
 rr, ff, fr, rf :: Input -> Output
-rr = particleGen cgrad cgrad2
+rr = particleGen cgrad       cgrad2
 ff = particleGen cgrad_fwdK2 cgrad2_fwdK
-fr = particleGen cgrad cgrad2_fwdK
+fr = particleGen cgrad       cgrad2_fwdK
 rf = particleGen cgrad_fwdK2 cgrad2
