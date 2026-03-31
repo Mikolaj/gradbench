@@ -20,10 +20,11 @@ instance JSON.FromJSON Input where
   parseJSON = JSON.withObject "input" $ \o ->
     Input <$> o .: "start"
 
-magnitude_squaredS :: (KnownShS sh, NumScalar a, ADReady target)
-                   => target (TKS sh a) -> target (TKScalar a)
+magnitude_squaredS :: (NumScalar a, ADReady target)
+                   => target (TKS '[2] a) -> target (TKScalar a)
 {-# INLINE magnitude_squaredS #-}
-magnitude_squaredS t' = tlet t' $ \t -> sdot0 t t
+magnitude_squaredS t = t `sindex0` [0] * t `sindex0` [0]
+                       + t `sindex0` [1] * t `sindex0` [1]
 
 scaleS :: (NumScalar a, ADReady target)
        => a -> target (TKS '[2] a) -> target (TKS '[2] a)
@@ -61,8 +62,8 @@ cgrad2_fwdS f x =
 fp :: Floating a => a -> a -> a -> a -> a
 {-# INLINE fp #-}
 fp p1x p1y p2x p2y = (p1x ** 2 + p1y ** 2) - (p2x ** 2 + p2y ** 2)
-  -- this isn't faster enough to measure:
-  -- fp p1x p1y p2x p2y = (sqr p1x + sqr p1y) - (sqr p2x + sqr p2y)
+  -- this is slightly slower:
+  -- fp p1x p1y p2x p2y = (p1x * p1x + p1y * p1y) - (p2x * p2x + p2y * p2y)
 
 saddleGen
   :: forall a. a ~ Double
@@ -94,6 +95,8 @@ saddleGen cgrad2A cgrad2B (Input (x, y)) =
              -> target (TKScalar a)
       r2cost r1 r2 = fp (r1 `sindex0` [0]) (r1 `sindex0` [1])
                         (r2 `sindex0` [0]) (r2 `sindex0` [1])
+      -- This is slower most of the time:
+      -- r2cost r1 r2 = sdot0 r1 r1 - sdot0 r2 r2
       r2cost' :: ( ADReadyNoLet target, ShareTensor target
                  , ShareTensor (PrimalOf target), ShareTensor (PlainOf target) )
               => target (TKS '[2] a) -> target (TKS '[2] a)
