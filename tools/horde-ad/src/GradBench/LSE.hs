@@ -9,7 +9,6 @@ import Data.Aeson ((.:))
 import Data.Aeson qualified as JSON
 import Data.Array.Nested qualified as Nested
 import Data.Vector.Storable qualified as VS
-import GHC.TypeLits (KnownNat)
 import HordeAd hiding (rlogsumexp)
 import HordeAd.Core.AstEnv
 import HordeAd.Core.AstInterpret
@@ -26,8 +25,8 @@ instance JSON.FromJSON Input where
 
 -- Copied from HordeAd.External.CommonRankedOps.
 -- Fails for empty x'.
-rlogsumexp :: (KnownNat n, NumScalar r, Differentiable r, ADReady target)
-          => target (TKR n r) -> target (TKScalar r)
+rlogsumexp :: forall n r target. (NumScalar r, Differentiable r, ADReady target)
+           => target (TKR n r) -> target (TKScalar r)
 rlogsumexp x' = tlet x' $ \x -> tlet (rmaximum x) $ \maxx ->
   let shiftedx = x - rreplicate0N (rshape x) maxx
       logged = log (rsum0 (exp shiftedx))
