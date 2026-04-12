@@ -12,9 +12,9 @@ import HordeAd
 import HordeAd.Core.AstEnv
 import HordeAd.Core.AstInterpret
 
-import Control.Concurrent
-import Debug.Trace
-import System.IO.Unsafe (unsafePerformIO)
+-- import Control.Concurrent
+-- import Debug.Trace
+-- import System.IO.Unsafe (unsafePerformIO)
 
 type LSTMParams target =
   ( target (TKR 2 Double)  -- main_params  :: [stlen * 2][4 * d]

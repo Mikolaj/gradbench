@@ -15,16 +15,16 @@ import Control.Monad.ST.Strict (ST, runST)
 import Data.Aeson ((.:))
 import Data.Aeson qualified as JSON
 import Data.Array.Nested qualified as Nested
-import Data.Int (Int8)
+-- import Data.Int (Int8)
 import Data.Vector.Storable qualified as VS
 import Data.Vector.Storable.Mutable qualified as VSM
 import HordeAd
 import HordeAd.Core.AstEnv
 import HordeAd.Core.AstInterpret
 
-import Control.Concurrent
-import Debug.Trace
-import System.IO.Unsafe (unsafePerformIO)
+-- import Control.Concurrent
+-- import Debug.Trace
+-- import System.IO.Unsafe (unsafePerformIO)
 
 type IntOr8 = Int
 type Int8OrDouble = Double
@@ -66,7 +66,7 @@ fused !len !idx0 !perm !freeSpots = do
         let fi2 = fi `quot` i2
             (idxDigit, idxRest) = idx `quotRem` fi2
         el <- nthFreeSpot idxDigit 0
-        VSM.write perm (len - i2) (fromIntegral el)
+        VSM.write perm (len - i2) el  -- (fromIntegral el)
         VSM.write freeSpots el False
         loop idxRest fi2 (i2 - 1)
   loop idx0 (fact len) len
@@ -124,14 +124,16 @@ det a =
 
 primal :: Input -> PrimalOutput
 primal (Input a ell) =
-  if ell /= 11 || True
-  then unsafePerformIO (threadDelay (1000000 + ell) >> return 0)
-  else let ast = simplifyInlineContract $ det (chunk ell a)
-       in -- traceShow ("primal", printAstPrettyButNested ast) $
-          unConcrete $ interpretAstFull emptyEnv ast
+  -- if ell /= 11 || True
+  -- then unsafePerformIO (threadDelay (1000000 + ell) >> return 0)
+  -- else
+    let ast = simplifyInlineContract $ det (chunk ell a)
+    in -- traceShow ("primal", printAstPrettyButNested ast) $
+       unConcrete $ interpretAstFull emptyEnv ast
 
 gradient :: Input -> GradientOutput
 gradient (Input a ell) =
-  if ell /= 11
-  then unsafePerformIO (threadDelay (1000000 + ell) >> return VS.empty)
-  else Nested.rtoVector . unConcrete $ grad det (chunk ell a)
+  -- if ell /= 11
+  -- then unsafePerformIO (threadDelay (1000000 + ell) >> return VS.empty)
+  -- else
+    Nested.rtoVector . unConcrete $ grad det (chunk ell a)
